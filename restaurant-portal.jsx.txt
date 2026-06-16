@@ -1,0 +1,686 @@
+import { useState, useEffect } from "react";
+
+// ─── Persistent Cloud Storage Keys ───────────────────────────────────────────
+const KEYS = {
+  users: "rms_users",
+  sales: "rms_sales",
+  staff: "rms_staff",
+  expenses: "rms_expenses",
+};
+
+// ─── Default Users ────────────────────────────────────────────────────────────
+const DEFAULT_USERS = [
+  { id: 1, name: "Admin", username: "admin", password: "admin123", role: "owner", active: true },
+  { id: 2, name: "Sufian", username: "sufian", password: "mgr123", role: "manager", active: true },
+  { id: 3, name: "Chitta", username: "chitta", password: "cash123", role: "cashier", active: true },
+];
+
+// ─── Role Config ──────────────────────────────────────────────────────────────
+const ROLES = {
+  owner: { label: "Owner/Admin", color: "#c0392b", badge: "👑", canViewAll: true, canEdit: true, canManageUsers: true, canViewReports: true },
+  manager: { label: "Manager", color: "#2980b9", badge: "🧑‍💼", canViewAll: true, canEdit: false, canManageUsers: false, canViewReports: true },
+  cashier: { label: "Cashier", color: "#27ae60", badge: "💰", canViewAll: false, canEdit: false, canManageUsers: false, canViewReports: false },
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const today = () => new Date().toISOString().split("T")[0];
+const fmt = (n) => Number(n || 0).toLocaleString("ur-PK");
+const uid = () => Date.now() + Math.random().toString(36).slice(2, 6);
+
+// ─── Storage Helpers ──────────────────────────────────────────────────────────
+async function load(key, fallback) {
+  try {
+    const r = await window.storage.get(key, true);
+    return r ? JSON.parse(r.value) : fallback;
+  } catch { return fallback; }
+}
+async function save(key, val) {
+  try { await window.storage.set(key, JSON.stringify(val), true); } catch {}
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [page, setPage] = useState("dashboard");
+  const [users, setUsers] = useState([]);
+  const [sales, setSales] = useState([]);
+  const [staff, setStaff] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState(null);
+
+  // Load all data
+  useEffect(() => {
+    (async () => {
+      const [u, s, st, ex] = await Promise.all([
+        load(KEYS.users, DEFAULT_USERS),
+        load(KEYS.sales, []),
+        load(KEYS.staff, [
+          { id: 1, name: "Sufian", role: "Waiter", salary: 5000, advance: 0, active: true },
+          { id: 2, name: "Mushoof", role: "Waiter", salary: 15000, advance: 0, active: true },
+          { id: 3, name: "Chitta", role: "Cashier", salary: 500, advance: 0, active: true },
+          { id: 4, name: "Pasha", role: "Cook", salary: 210, advance: 0, active: true },
+          { id: 5, name: "Fazeel", role: "Waiter", salary: 130, advance: 0, active: true },
+          { id: 6, name: "Imran", role: "Delivery", salary: 500, advance: 0, active: true },
+          { id: 7, name: "Anous", role: "Cook", salary: 34670, advance: 0, active: true },
+          { id: 8, name: "Adeel", role: "Waiter", salary: 19670, advance: 0, active: true },
+          { id: 9, name: "Wahab", role: "Rider", salary: 34700, advance: 0, active: true },
+        ]),
+        load(KEYS.expenses, []),
+      ]);
+      setUsers(u);
+      setSales(s);
+      setStaff(st);
+      setExpenses(ex);
+      setLoading(false);
+    })();
+  }, []);
+
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  // Persist helpers
+  const updateSales = async (data) => { setSales(data); await save(KEYS.sales, data); };
+  const updateStaff = async (data) => { setStaff(data); await save(KEYS.staff, data); };
+  const updateExpenses = async (data) => { setExpenses(data); await save(KEYS.expenses, data); };
+  const updateUsers = async (data) => { setUsers(data); await save(KEYS.users, data); };
+
+  if (loading) return (
+    <div style={S.splash}>
+      <div style={S.splashInner}>
+        <div style={S.logo}>🍽️</div>
+        <div style={S.splashTitle}>Restaurant Portal</div>
+        <div style={S.loader}></div>
+      </div>
+    </div>
+  );
+
+  if (!user) return <Login users={users} onLogin={setUser} />;
+
+  const role = ROLES[user.role];
+  const todaySales = sales.filter(s => s.date === today());
+  const totalSale = todaySales.reduce((a, b) => a + Number(b.amount || 0), 0);
+  const totalExpense = expenses.filter(e => e.date === today()).reduce((a, b) => a + Number(b.amount || 0), 0);
+
+  return (
+    <div style={S.app}>
+      {/* Sidebar */}
+      <aside style={S.sidebar}>
+        <div style={S.sideTop}>
+          <div style={S.sideLogoWrap}>
+            <span style={S.sideLogo}>🍽️</span>
+            <span style={S.sideTitle}>Restaurant</span>
+          </div>
+          <div style={S.userBadge}>
+            <span style={{ ...S.roleDot, background: role.color }}>{role.badge}</span>
+            <div>
+              <div style={S.userName}>{user.name}</div>
+              <div style={{ ...S.roleLabel, color: role.color }}>{role.label}</div>
+            </div>
+          </div>
+        </div>
+
+        <nav style={S.nav}>
+          {[
+            { id: "dashboard", icon: "📊", label: "Dashboard" },
+            { id: "sale", icon: "💵", label: "Daily Sale" },
+            ...(role.canViewReports ? [{ id: "reports", icon: "📈", label: "Reports" }] : []),
+            ...(role.canViewAll ? [{ id: "staff", icon: "👥", label: "Staff" }] : []),
+            ...(role.canViewAll ? [{ id: "expenses", icon: "📋", label: "Expenses" }] : []),
+            ...(role.canManageUsers ? [{ id: "users", icon: "⚙️", label: "Users" }] : []),
+          ].map(item => (
+            <button key={item.id} style={{ ...S.navBtn, ...(page === item.id ? S.navActive : {}) }}
+              onClick={() => setPage(item.id)}>
+              <span>{item.icon}</span> {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <button style={S.logoutBtn} onClick={() => setUser(null)}>🚪 Logout</button>
+      </aside>
+
+      {/* Main */}
+      <main style={S.main}>
+        {toast && (
+          <div style={{ ...S.toast, background: toast.type === "error" ? "#c0392b" : "#27ae60" }}>
+            {toast.msg}
+          </div>
+        )}
+
+        {page === "dashboard" && (
+          <Dashboard totalSale={totalSale} totalExpense={totalExpense}
+            salesCount={todaySales.length} staffCount={staff.filter(s => s.active).length}
+            role={role} sales={sales} />
+        )}
+        {page === "sale" && (
+          <SaleEntry sales={sales} onUpdate={updateSales} staff={staff}
+            user={user} toast={showToast} role={role} />
+        )}
+        {page === "reports" && role.canViewReports && (
+          <Reports sales={sales} expenses={expenses} staff={staff} />
+        )}
+        {page === "staff" && role.canViewAll && (
+          <Staff staff={staff} onUpdate={updateStaff} role={role} toast={showToast} />
+        )}
+        {page === "expenses" && role.canViewAll && (
+          <Expenses expenses={expenses} onUpdate={updateExpenses} role={role} toast={showToast} />
+        )}
+        {page === "users" && role.canManageUsers && (
+          <Users users={users} onUpdate={updateUsers} toast={showToast} />
+        )}
+      </main>
+    </div>
+  );
+}
+
+// ─── Login ────────────────────────────────────────────────────────────────────
+function Login({ users, onLogin }) {
+  const [u, setU] = useState("");
+  const [p, setP] = useState("");
+  const [err, setErr] = useState("");
+
+  const login = () => {
+    const found = users.find(x => x.username === u && x.password === p && x.active);
+    if (found) onLogin(found);
+    else setErr("❌ غلط username یا password");
+  };
+
+  return (
+    <div style={S.loginWrap}>
+      <div style={S.loginCard}>
+        <div style={S.loginLogo}>🍽️</div>
+        <h1 style={S.loginTitle}>Restaurant Portal</h1>
+        <p style={S.loginSub}>اپنی ID سے login کریں</p>
+        <input style={S.input} placeholder="Username" value={u}
+          onChange={e => { setU(e.target.value); setErr(""); }} />
+        <input style={S.input} type="password" placeholder="Password" value={p}
+          onChange={e => { setP(e.target.value); setErr(""); }}
+          onKeyDown={e => e.key === "Enter" && login()} />
+        {err && <div style={S.errMsg}>{err}</div>}
+        <button style={S.loginBtn} onClick={login}>Login کریں</button>
+        <div style={S.loginHint}>
+          <b>Demo:</b> admin/admin123 · sufian/mgr123 · chitta/cash123
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+function Dashboard({ totalSale, totalExpense, salesCount, staffCount, role, sales }) {
+  const net = totalSale - totalExpense;
+  const last7 = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const key = d.toISOString().split("T")[0];
+    const amt = sales.filter(s => s.date === key).reduce((a, b) => a + Number(b.amount || 0), 0);
+    last7.push({ date: key.slice(5), amt });
+  }
+  const maxAmt = Math.max(...last7.map(d => d.amt), 1);
+
+  return (
+    <div style={S.page}>
+      <h2 style={S.pageTitle}>📊 Dashboard — آج کا خلاصہ</h2>
+      <div style={S.cards}>
+        <Card icon="💵" label="آج کی Sale" value={`Rs. ${fmt(totalSale)}`} color="#27ae60" />
+        <Card icon="📋" label="Expenses" value={`Rs. ${fmt(totalExpense)}`} color="#e67e22" />
+        <Card icon="📈" label="Net Profit" value={`Rs. ${fmt(net)}`} color={net >= 0 ? "#2980b9" : "#c0392b"} />
+        {role.canViewAll && <Card icon="👥" label="Active Staff" value={staffCount} color="#8e44ad" />}
+      </div>
+
+      <div style={S.chartBox}>
+        <div style={S.sectionTitle}>📅 پچھلے 7 دن کی Sales</div>
+        <div style={S.barChart}>
+          {last7.map((d, i) => (
+            <div key={i} style={S.barWrap}>
+              <div style={S.barAmt}>{d.amt > 0 ? `${Math.round(d.amt / 1000)}k` : ""}</div>
+              <div style={{ ...S.bar, height: `${Math.max((d.amt / maxAmt) * 120, 4)}px` }} />
+              <div style={S.barLabel}>{d.date}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Card({ icon, label, value, color }) {
+  return (
+    <div style={{ ...S.card, borderTop: `4px solid ${color}` }}>
+      <div style={S.cardIcon}>{icon}</div>
+      <div style={S.cardLabel}>{label}</div>
+      <div style={{ ...S.cardValue, color }}>{value}</div>
+    </div>
+  );
+}
+
+// ─── Sale Entry ───────────────────────────────────────────────────────────────
+function SaleEntry({ sales, onUpdate, staff, user, toast, role }) {
+  const [form, setForm] = useState({ date: today(), amount: "", type: "Cash", note: "", staffId: "" });
+  const [filter, setFilter] = useState(today());
+
+  const add = async () => {
+    if (!form.amount || isNaN(form.amount)) return toast("Amount درست نہیں", "error");
+    const rec = { id: uid(), ...form, amount: Number(form.amount), addedBy: user.name, addedAt: new Date().toLocaleTimeString("ur-PK") };
+    await onUpdate([...sales, rec]);
+    setForm(f => ({ ...f, amount: "", note: "" }));
+    toast("✅ Sale save ہو گئی!");
+  };
+
+  const del = async (id) => {
+    if (!role.canEdit) return toast("آپ کو delete کی اجازت نہیں", "error");
+    await onUpdate(sales.filter(s => s.id !== id));
+    toast("🗑️ Delete ہو گیا");
+  };
+
+  const filtered = sales.filter(s => s.date === filter);
+  const total = filtered.reduce((a, b) => a + Number(b.amount), 0);
+
+  return (
+    <div style={S.page}>
+      <h2 style={S.pageTitle}>💵 Daily Sale Entry</h2>
+      <div style={S.formCard}>
+        <div style={S.formGrid}>
+          <div style={S.formGroup}>
+            <label style={S.label}>تاریخ</label>
+            <input style={S.input} type="date" value={form.date}
+              onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+          </div>
+          <div style={S.formGroup}>
+            <label style={S.label}>Amount (Rs.)</label>
+            <input style={S.input} type="number" placeholder="مثلاً: 428720"
+              value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+          </div>
+          <div style={S.formGroup}>
+            <label style={S.label}>قسم</label>
+            <select style={S.input} value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+              <option>Cash</option><option>Card</option><option>Online</option><option>ATM</option>
+            </select>
+          </div>
+          <div style={S.formGroup}>
+            <label style={S.label}>Staff</label>
+            <select style={S.input} value={form.staffId} onChange={e => setForm(f => ({ ...f, staffId: e.target.value }))}>
+              <option value="">-- کوئی نہیں --</option>
+              {staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div style={{ ...S.formGroup, gridColumn: "1/-1" }}>
+            <label style={S.label}>نوٹ</label>
+            <input style={S.input} placeholder="اضافی معلومات..." value={form.note}
+              onChange={e => setForm(f => ({ ...f, note: e.target.value }))} />
+          </div>
+        </div>
+        <button style={S.addBtn} onClick={add}>+ Sale Add کریں</button>
+      </div>
+
+      <div style={S.tableCard}>
+        <div style={S.tableHeader}>
+          <span style={S.sectionTitle}>📋 Sales Record</span>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input style={{ ...S.input, width: 140, marginBottom: 0 }} type="date" value={filter}
+              onChange={e => setFilter(e.target.value)} />
+            <span style={S.totalBadge}>Total: Rs. {fmt(total)}</span>
+          </div>
+        </div>
+        <div style={S.tableWrap}>
+          <table style={S.table}>
+            <thead>
+              <tr style={S.thead}>
+                {["تاریخ", "Amount", "قسم", "Staff", "نوٹ", "By", "وقت", role.canEdit ? "🗑️" : null].filter(Boolean).map(h => (
+                  <th key={h} style={S.th}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr><td colSpan={8} style={S.empty}>کوئی record نہیں</td></tr>
+              ) : filtered.slice().reverse().map(s => (
+                <tr key={s.id} style={S.tr}>
+                  <td style={S.td}>{s.date}</td>
+                  <td style={{ ...S.td, color: "#27ae60", fontWeight: 700 }}>Rs. {fmt(s.amount)}</td>
+                  <td style={S.td}><span style={{ ...S.tag, background: s.type === "Cash" ? "#e8f5e9" : "#e3f2fd" }}>{s.type}</span></td>
+                  <td style={S.td}>{staff.find(x => x.id == s.staffId)?.name || "—"}</td>
+                  <td style={S.td}>{s.note || "—"}</td>
+                  <td style={S.td}>{s.addedBy}</td>
+                  <td style={S.td}>{s.addedAt}</td>
+                  {role.canEdit && <td style={S.td}><button style={S.delBtn} onClick={() => del(s.id)}>🗑️</button></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Reports ──────────────────────────────────────────────────────────────────
+function Reports({ sales, expenses, staff }) {
+  const [month, setMonth] = useState(today().slice(0, 7));
+  const mSales = sales.filter(s => s.date?.startsWith(month));
+  const mExp = expenses.filter(e => e.date?.startsWith(month));
+  const totalSale = mSales.reduce((a, b) => a + Number(b.amount || 0), 0);
+  const totalExp = mExp.reduce((a, b) => a + Number(b.amount || 0), 0);
+  const net = totalSale - totalExp;
+  const salaryTotal = staff.reduce((a, b) => a + Number(b.salary || 0), 0);
+
+  // Group by day
+  const byDay = {};
+  mSales.forEach(s => { byDay[s.date] = (byDay[s.date] || 0) + Number(s.amount || 0); });
+  const days = Object.entries(byDay).sort(([a], [b]) => a > b ? -1 : 1);
+
+  return (
+    <div style={S.page}>
+      <h2 style={S.pageTitle}>📈 Monthly Report</h2>
+      <input style={{ ...S.input, maxWidth: 200, marginBottom: 20 }} type="month" value={month}
+        onChange={e => setMonth(e.target.value)} />
+
+      <div style={S.cards}>
+        <Card icon="💵" label="کل Sales" value={`Rs. ${fmt(totalSale)}`} color="#27ae60" />
+        <Card icon="📋" label="کل Expenses" value={`Rs. ${fmt(totalExp)}`} color="#e67e22" />
+        <Card icon="👥" label="Staff Salary" value={`Rs. ${fmt(salaryTotal)}`} color="#8e44ad" />
+        <Card icon="📈" label="Net Profit" value={`Rs. ${fmt(net - salaryTotal)}`} color={net - salaryTotal >= 0 ? "#2980b9" : "#c0392b"} />
+      </div>
+
+      <div style={S.tableCard}>
+        <div style={S.sectionTitle}>📅 روزانہ Sales</div>
+        <div style={S.tableWrap}>
+          <table style={S.table}>
+            <thead><tr style={S.thead}>{["تاریخ", "Sale", "Entries"].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {days.length === 0 ? <tr><td colSpan={3} style={S.empty}>کوئی record نہیں</td></tr>
+                : days.map(([d, amt]) => (
+                  <tr key={d} style={S.tr}>
+                    <td style={S.td}>{d}</td>
+                    <td style={{ ...S.td, color: "#27ae60", fontWeight: 700 }}>Rs. {fmt(amt)}</td>
+                    <td style={S.td}>{mSales.filter(s => s.date === d).length}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Staff ────────────────────────────────────────────────────────────────────
+function Staff({ staff, onUpdate, role, toast }) {
+  const [form, setForm] = useState({ name: "", role: "Waiter", salary: "", advance: 0 });
+  const [editId, setEditId] = useState(null);
+
+  const save = async () => {
+    if (!form.name) return toast("نام لکھیں", "error");
+    if (editId) {
+      await onUpdate(staff.map(s => s.id === editId ? { ...s, ...form } : s));
+      setEditId(null); toast("✅ Update ہو گیا!");
+    } else {
+      await onUpdate([...staff, { id: uid(), ...form, salary: Number(form.salary), active: true }]);
+      toast("✅ Staff Add ہو گئی!");
+    }
+    setForm({ name: "", role: "Waiter", salary: "", advance: 0 });
+  };
+
+  const startEdit = (s) => { setForm({ name: s.name, role: s.role, salary: s.salary, advance: s.advance }); setEditId(s.id); };
+  const toggle = async (id) => {
+    if (!role.canEdit) return toast("آپ کو یہ اجازت نہیں", "error");
+    await onUpdate(staff.map(s => s.id === id ? { ...s, active: !s.active } : s));
+  };
+
+  return (
+    <div style={S.page}>
+      <h2 style={S.pageTitle}>👥 Staff Management</h2>
+      {role.canEdit && (
+        <div style={S.formCard}>
+          <div style={S.sectionTitle}>{editId ? "✏️ Staff Edit کریں" : "➕ نئی Staff"}</div>
+          <div style={S.formGrid}>
+            <div style={S.formGroup}><label style={S.label}>نام</label>
+              <input style={S.input} placeholder="نام" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
+            <div style={S.formGroup}><label style={S.label}>عہدہ</label>
+              <select style={S.input} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+                {["Waiter", "Cashier", "Cook", "Rider", "Manager", "Cleaner", "Other"].map(r => <option key={r}>{r}</option>)}
+              </select></div>
+            <div style={S.formGroup}><label style={S.label}>تنخواہ (Rs.)</label>
+              <input style={S.input} type="number" value={form.salary} onChange={e => setForm(f => ({ ...f, salary: e.target.value }))} /></div>
+            <div style={S.formGroup}><label style={S.label}>Advance (Rs.)</label>
+              <input style={S.input} type="number" value={form.advance} onChange={e => setForm(f => ({ ...f, advance: e.target.value }))} /></div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={S.addBtn} onClick={save}>{editId ? "Update کریں" : "+ Add کریں"}</button>
+            {editId && <button style={S.cancelBtn} onClick={() => { setEditId(null); setForm({ name: "", role: "Waiter", salary: "", advance: 0 }); }}>Cancel</button>}
+          </div>
+        </div>
+      )}
+
+      <div style={S.tableCard}>
+        <div style={S.tableWrap}>
+          <table style={S.table}>
+            <thead><tr style={S.thead}>{["نام", "عہدہ", "تنخواہ", "Advance", "Status", role.canEdit ? "Actions" : null].filter(Boolean).map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {staff.map(s => (
+                <tr key={s.id} style={{ ...S.tr, opacity: s.active ? 1 : 0.5 }}>
+                  <td style={S.td}><b>{s.name}</b></td>
+                  <td style={S.td}><span style={S.tag}>{s.role}</span></td>
+                  <td style={{ ...S.td, color: "#27ae60", fontWeight: 700 }}>Rs. {fmt(s.salary)}</td>
+                  <td style={{ ...S.td, color: "#e67e22" }}>Rs. {fmt(s.advance)}</td>
+                  <td style={S.td}><span style={{ ...S.tag, background: s.active ? "#e8f5e9" : "#fce4ec", color: s.active ? "#27ae60" : "#c0392b" }}>{s.active ? "Active" : "Inactive"}</span></td>
+                  {role.canEdit && <td style={S.td}>
+                    <button style={S.editBtn} onClick={() => startEdit(s)}>✏️</button>
+                    <button style={S.delBtn} onClick={() => toggle(s.id)}>{s.active ? "🚫" : "✅"}</button>
+                  </td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Expenses ─────────────────────────────────────────────────────────────────
+function Expenses({ expenses, onUpdate, role, toast }) {
+  const [form, setForm] = useState({ date: today(), category: "Grocery", amount: "", note: "" });
+
+  const add = async () => {
+    if (!form.amount) return toast("Amount لکھیں", "error");
+    await onUpdate([...expenses, { id: uid(), ...form, amount: Number(form.amount) }]);
+    setForm(f => ({ ...f, amount: "", note: "" }));
+    toast("✅ Expense Save ہو گئی!");
+  };
+
+  const del = async (id) => {
+    if (!role.canEdit) return toast("اجازت نہیں", "error");
+    await onUpdate(expenses.filter(e => e.id !== id));
+  };
+
+  const cats = ["Grocery", "Utilities", "Salary", "Rent", "Maintenance", "Other"];
+  const total = expenses.reduce((a, b) => a + Number(b.amount || 0), 0);
+
+  return (
+    <div style={S.page}>
+      <h2 style={S.pageTitle}>📋 Expenses</h2>
+      {role.canEdit && (
+        <div style={S.formCard}>
+          <div style={S.formGrid}>
+            <div style={S.formGroup}><label style={S.label}>تاریخ</label>
+              <input style={S.input} type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} /></div>
+            <div style={S.formGroup}><label style={S.label}>قسم</label>
+              <select style={S.input} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
+                {cats.map(c => <option key={c}>{c}</option>)}
+              </select></div>
+            <div style={S.formGroup}><label style={S.label}>Amount</label>
+              <input style={S.input} type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} /></div>
+            <div style={S.formGroup}><label style={S.label}>نوٹ</label>
+              <input style={S.input} value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} /></div>
+          </div>
+          <button style={S.addBtn} onClick={add}>+ Add کریں</button>
+        </div>
+      )}
+      <div style={S.tableCard}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <span style={S.sectionTitle}>کل Expenses</span>
+          <span style={S.totalBadge}>Rs. {fmt(total)}</span>
+        </div>
+        <div style={S.tableWrap}>
+          <table style={S.table}>
+            <thead><tr style={S.thead}>{["تاریخ", "قسم", "Amount", "نوٹ", role.canEdit ? "🗑️" : null].filter(Boolean).map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {expenses.length === 0 ? <tr><td colSpan={5} style={S.empty}>کوئی record نہیں</td></tr>
+                : expenses.slice().reverse().map(e => (
+                  <tr key={e.id} style={S.tr}>
+                    <td style={S.td}>{e.date}</td>
+                    <td style={S.td}><span style={S.tag}>{e.category}</span></td>
+                    <td style={{ ...S.td, color: "#c0392b", fontWeight: 700 }}>Rs. {fmt(e.amount)}</td>
+                    <td style={S.td}>{e.note || "—"}</td>
+                    {role.canEdit && <td style={S.td}><button style={S.delBtn} onClick={() => del(e.id)}>🗑️</button></td>}
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Users ────────────────────────────────────────────────────────────────────
+function Users({ users, onUpdate, toast }) {
+  const [form, setForm] = useState({ name: "", username: "", password: "", role: "cashier" });
+
+  const add = async () => {
+    if (!form.name || !form.username || !form.password) return toast("سب fields بھریں", "error");
+    if (users.find(u => u.username === form.username)) return toast("یہ username پہلے سے موجود ہے", "error");
+    await onUpdate([...users, { id: uid(), ...form, active: true }]);
+    setForm({ name: "", username: "", password: "", role: "cashier" });
+    toast("✅ User بن گیا!");
+  };
+
+  const toggle = async (id) => await onUpdate(users.map(u => u.id === id ? { ...u, active: !u.active } : u));
+  const del = async (id) => await onUpdate(users.filter(u => u.id !== id));
+
+  return (
+    <div style={S.page}>
+      <h2 style={S.pageTitle}>⚙️ User Management</h2>
+      <div style={S.formCard}>
+        <div style={S.sectionTitle}>➕ نیا User بنائیں</div>
+        <div style={S.formGrid}>
+          <div style={S.formGroup}><label style={S.label}>نام</label>
+            <input style={S.input} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
+          <div style={S.formGroup}><label style={S.label}>Username</label>
+            <input style={S.input} value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} /></div>
+          <div style={S.formGroup}><label style={S.label}>Password</label>
+            <input style={S.input} value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} /></div>
+          <div style={S.formGroup}><label style={S.label}>Role</label>
+            <select style={S.input} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+              <option value="owner">Owner/Admin 👑</option>
+              <option value="manager">Manager 🧑‍💼</option>
+              <option value="cashier">Cashier 💰</option>
+            </select></div>
+        </div>
+        <button style={S.addBtn} onClick={add}>+ User Add کریں</button>
+      </div>
+
+      <div style={S.tableCard}>
+        <div style={S.tableWrap}>
+          <table style={S.table}>
+            <thead><tr style={S.thead}>{["نام", "Username", "Role", "Status", "Actions"].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u.id} style={{ ...S.tr, opacity: u.active ? 1 : 0.5 }}>
+                  <td style={S.td}><b>{u.name}</b></td>
+                  <td style={S.td}><code>{u.username}</code></td>
+                  <td style={S.td}><span style={{ ...S.tag, background: ROLES[u.role]?.color + "22", color: ROLES[u.role]?.color }}>{ROLES[u.role]?.badge} {ROLES[u.role]?.label}</span></td>
+                  <td style={S.td}><span style={{ ...S.tag, background: u.active ? "#e8f5e9" : "#fce4ec", color: u.active ? "#27ae60" : "#c0392b" }}>{u.active ? "Active" : "Inactive"}</span></td>
+                  <td style={S.td}>
+                    <button style={S.editBtn} onClick={() => toggle(u.id)}>{u.active ? "🚫" : "✅"}</button>
+                    <button style={S.delBtn} onClick={() => del(u.id)}>🗑️</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const S = {
+  splash: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#1a1a2e", fontFamily: "sans-serif" },
+  splashInner: { textAlign: "center" },
+  logo: { fontSize: 64, marginBottom: 12 },
+  splashTitle: { color: "#fff", fontSize: 28, fontWeight: 700, marginBottom: 24 },
+  loader: { width: 40, height: 40, border: "4px solid #ffffff33", borderTop: "4px solid #e74c3c", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "0 auto" },
+
+  app: { display: "flex", minHeight: "100vh", fontFamily: "'Segoe UI', sans-serif", background: "#f0f2f5" },
+
+  sidebar: { width: 220, background: "#1a1a2e", display: "flex", flexDirection: "column", padding: "20px 0", flexShrink: 0 },
+  sideTop: { padding: "0 16px 20px", borderBottom: "1px solid #ffffff15" },
+  sideLogoWrap: { display: "flex", alignItems: "center", gap: 8, marginBottom: 16 },
+  sideLogo: { fontSize: 28 },
+  sideTitle: { color: "#fff", fontWeight: 700, fontSize: 16 },
+  userBadge: { display: "flex", alignItems: "center", gap: 10, background: "#ffffff10", borderRadius: 10, padding: "10px 12px" },
+  roleDot: { width: 36, height: 36, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 },
+  userName: { color: "#fff", fontWeight: 600, fontSize: 13 },
+  roleLabel: { fontSize: 11, fontWeight: 600 },
+
+  nav: { flex: 1, padding: "16px 10px", display: "flex", flexDirection: "column", gap: 4 },
+  navBtn: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, border: "none", background: "transparent", color: "#ffffffaa", cursor: "pointer", fontSize: 14, textAlign: "left", transition: "all 0.2s" },
+  navActive: { background: "#e74c3c", color: "#fff", fontWeight: 600 },
+  logoutBtn: { margin: "0 10px", padding: "10px 14px", border: "1px solid #ffffff22", borderRadius: 8, background: "transparent", color: "#ffffff88", cursor: "pointer", fontSize: 13 },
+
+  main: { flex: 1, overflow: "auto", position: "relative" },
+  toast: { position: "fixed", top: 20, right: 20, padding: "12px 20px", borderRadius: 10, color: "#fff", fontWeight: 600, zIndex: 1000, fontSize: 14, boxShadow: "0 4px 20px #0003" },
+
+  page: { padding: 24, maxWidth: 1000, margin: "0 auto" },
+  pageTitle: { fontSize: 22, fontWeight: 700, color: "#1a1a2e", marginBottom: 20, paddingBottom: 12, borderBottom: "2px solid #e74c3c" },
+  sectionTitle: { fontSize: 15, fontWeight: 700, color: "#1a1a2e", marginBottom: 12 },
+
+  cards: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 24 },
+  card: { background: "#fff", borderRadius: 12, padding: "20px 16px", boxShadow: "0 2px 8px #0001" },
+  cardIcon: { fontSize: 28, marginBottom: 8 },
+  cardLabel: { color: "#666", fontSize: 12, marginBottom: 4 },
+  cardValue: { fontSize: 20, fontWeight: 800 },
+
+  chartBox: { background: "#fff", borderRadius: 12, padding: 20, boxShadow: "0 2px 8px #0001" },
+  barChart: { display: "flex", alignItems: "flex-end", gap: 10, height: 160, padding: "10px 0 0" },
+  barWrap: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 },
+  barAmt: { fontSize: 10, color: "#666" },
+  bar: { width: "100%", background: "linear-gradient(180deg, #e74c3c, #c0392b)", borderRadius: "4px 4px 0 0", minHeight: 4 },
+  barLabel: { fontSize: 10, color: "#888" },
+
+  formCard: { background: "#fff", borderRadius: 12, padding: 20, marginBottom: 20, boxShadow: "0 2px 8px #0001" },
+  formGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 16 },
+  formGroup: { display: "flex", flexDirection: "column", gap: 6 },
+  label: { fontSize: 12, fontWeight: 600, color: "#555" },
+  input: { padding: "10px 12px", border: "1.5px solid #e0e0e0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit", marginBottom: 0 },
+  addBtn: { background: "#e74c3c", color: "#fff", border: "none", padding: "11px 24px", borderRadius: 8, fontWeight: 700, cursor: "pointer", fontSize: 14 },
+  cancelBtn: { background: "#eee", color: "#333", border: "none", padding: "11px 20px", borderRadius: 8, fontWeight: 600, cursor: "pointer", fontSize: 14 },
+
+  tableCard: { background: "#fff", borderRadius: 12, padding: 20, boxShadow: "0 2px 8px #0001" },
+  tableHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 },
+  tableWrap: { overflowX: "auto" },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: 14 },
+  thead: { background: "#f8f9fa" },
+  th: { padding: "10px 12px", textAlign: "left", fontWeight: 700, color: "#444", borderBottom: "2px solid #eee", whiteSpace: "nowrap" },
+  tr: { borderBottom: "1px solid #f0f0f0" },
+  td: { padding: "10px 12px", color: "#333" },
+  empty: { padding: 32, textAlign: "center", color: "#aaa" },
+  tag: { padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: "#f0f0f0" },
+  totalBadge: { background: "#1a1a2e", color: "#fff", padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700 },
+  delBtn: { background: "#fce4ec", border: "none", padding: "5px 8px", borderRadius: 6, cursor: "pointer", marginLeft: 4 },
+  editBtn: { background: "#e3f2fd", border: "none", padding: "5px 8px", borderRadius: 6, cursor: "pointer" },
+
+  loginWrap: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)", fontFamily: "'Segoe UI', sans-serif" },
+  loginCard: { background: "#fff", borderRadius: 20, padding: 40, width: "100%", maxWidth: 380, boxShadow: "0 20px 60px #0005", textAlign: "center" },
+  loginLogo: { fontSize: 56, marginBottom: 8 },
+  loginTitle: { fontSize: 24, fontWeight: 800, color: "#1a1a2e", margin: "0 0 6px" },
+  loginSub: { color: "#888", fontSize: 14, marginBottom: 24 },
+  loginBtn: { width: "100%", padding: "13px", background: "#e74c3c", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 16, cursor: "pointer", marginTop: 8 },
+  loginHint: { marginTop: 16, fontSize: 12, color: "#aaa", lineHeight: 1.6 },
+  errMsg: { color: "#c0392b", fontSize: 13, marginBottom: 8, fontWeight: 600 },
+};
